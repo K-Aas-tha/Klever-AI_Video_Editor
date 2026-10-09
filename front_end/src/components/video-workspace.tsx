@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Brand } from './brand';
 import podcast from '@/assets/podcast.jpg';
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = (import.meta.env["VITE_API_BASE"] || "http://localhost:8000").replace(/\/$/, "");
 
 type View = 'studio' | 'projects' | 'clips' | 'settings';
 

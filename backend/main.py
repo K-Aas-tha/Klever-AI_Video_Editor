@@ -28,11 +28,17 @@ except ImportError:
     whisper = None
 
 app = FastAPI(title="Klever AI Video Editor")
+frontend_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:8080",
         "http://127.0.0.1:8080",
+        *frontend_origins,
     ],
     allow_methods=["*"],
     allow_headers=["*"],
