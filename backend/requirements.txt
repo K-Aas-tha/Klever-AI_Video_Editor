@@ -1,0 +1,14 @@
+# use venv 3.13 for whisper to be compatible
+fastapi
+uvicorn
+python-multipart
+
+requests
+torch
+
+openai-whisper
+opencv-python
+
+moviepy
+scenedetect[opencv]
+pillow

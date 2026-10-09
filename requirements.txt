@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+opencv-python
+moviepy
+scenedetect
+pillow
+openai-whisper
+numpy
+pydantic
