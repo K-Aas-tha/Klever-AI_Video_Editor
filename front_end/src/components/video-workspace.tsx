@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Clapperboard, Download, ExternalLink, Film, FolderOpen, Heart, Link2, LoaderCircle, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Sparkles, Upload, WandSparkles, X, Zap, Play, Image as ImageIcon, Scissors, Sliders } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Clapperboard, Download, Film, FolderOpen, Heart, Link2, LoaderCircle, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Sparkles, Upload, WandSparkles, X, Play, Image as ImageIcon, Scissors, Sliders } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Brand } from './brand';
 import podcast from '@/assets/podcast.jpg';
 
 const API_BASE = "http://localhost:8000";
 
-type View = 'studio' | 'projects' | 'clips' | 'settings';
+type View = 'studio' | 'projects' | 'settings';
 
 type TopicSlide = {
   topic_number: number;
@@ -51,8 +50,7 @@ const demoProjects: Project[] = [
 
 const navItems = [
   { id: 'studio', label: 'Create clips', icon: WandSparkles },
-  { id: 'projects', label: 'My projects', icon: FolderOpen },
-  { id: 'clips', label: 'My clips', icon: Film }
+  { id: 'projects', label: 'My projects', icon: FolderOpen }
 ] as const;
 
 export function VideoWorkspace() {
@@ -64,7 +62,6 @@ export function VideoWorkspace() {
   const [notice, setNotice] = useState('');
   const [dragging, setDragging] = useState(false);
   const [active, setActive] = useState<Project | null>(null);
-  const [dialog, setDialog] = useState<'help' | 'upgrade' | null>(null);
   const [menu, setMenu] = useState<number | null>(null);
   
   // Editor Form States
@@ -96,7 +93,7 @@ export function VideoWorkspace() {
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setActive(null); setDialog(null); setMenu(null); }
+      if (event.key === 'Escape') { setActive(null); setMenu(null); }
     };
     window.addEventListener('keydown', handle);
     return () => window.removeEventListener('keydown', handle);
@@ -226,9 +223,10 @@ export function VideoWorkspace() {
 
       startStatusPolling(currentJobId);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error("AI Pipeline Trigger Error:", err);
-      setEditorNotice("Error launching backend process: " + err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      setEditorNotice("Error launching backend process: " + message);
       setBusy(false);
     }
   }
@@ -430,16 +428,7 @@ export function VideoWorkspace() {
             </Button>
           ))}
         </nav>
-        <div className="nav-label">RESOURCES</div>
-        <nav className="secondary-nav">
-          <Button variant="ghost" className="nav-button" onClick={() => setDialog('help')}><BookOpen />Getting started<ExternalLink className="ml-auto" size={12} /></Button>
-        </nav>
         <div className="sidebar-bottom">
-          <div className="upgrade-box">
-            <Zap className="text-primary" size={21} />
-            <h3>AI Video Processing Active</h3>
-            <p>Whisper, PySceneDetect, Pillow slides & MoviePy engine connected.</p>
-          </div>
           <Button variant="ghost" className="nav-button" onClick={() => setView('settings')}><Settings2 />Settings</Button>
         </div>
       </aside>
@@ -450,7 +439,7 @@ export function VideoWorkspace() {
           <div className="breadcrumb">
             <span>Workspace</span>
             <ChevronRight size={12} />
-            <strong>{view === 'studio' ? 'Create clips' : view === 'projects' ? 'My projects' : view === 'clips' ? 'My clips' : 'Settings'}</strong>
+            <strong>{view === 'studio' ? 'Create clips' : view === 'projects' ? 'My projects' : 'Settings'}</strong>
           </div>
           <div className="top-actions">
             <label className="search-field">
@@ -503,48 +492,6 @@ export function VideoWorkspace() {
       </div>
 
       <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
-
-      <Dialog open={dialog === 'help'} onOpenChange={open => { if (!open) setDialog(null); }}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Getting started</DialogTitle>
-            <DialogDescription>Turn a long video into a shorter, polished edit.</DialogDescription>
-          </DialogHeader>
-          <ol className="space-y-4">
-            <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">1</span>
-              <div>
-                <h3 className="text-sm font-semibold">Add your video</h3>
-                <p className="text-sm text-muted-foreground">Choose a video or drag it into the upload area. Videos must be under 500 MB.</p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">2</span>
-              <div>
-                <h3 className="text-sm font-semibold">Set your edit options</h3>
-                <p className="text-sm text-muted-foreground">Update the editing instructions, then choose whether to remove silence or add topic intro slides.</p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">3</span>
-              <div>
-                <h3 className="text-sm font-semibold">Generate your edit</h3>
-                <p className="text-sm text-muted-foreground">Select Generate Video and follow the progress shown in the editor.</p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">4</span>
-              <div>
-                <h3 className="text-sm font-semibold">Review and download</h3>
-                <p className="text-sm text-muted-foreground">Preview the result, then select Download Edited Video to save it.</p>
-              </div>
-            </li>
-          </ol>
-          <Button onClick={() => { setDialog(null); startProject(); }}>
-            Choose a video <ArrowRight size={15} />
-          </Button>
-        </DialogContent>
-      </Dialog>
 
       {/* Editor Modal */}
       {active && (
