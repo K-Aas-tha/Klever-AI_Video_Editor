@@ -8,7 +8,7 @@ Klever is a local web app for turning long videos into shorter edits. Upload a v
 - [Bun](https://bun.sh/) for the frontend
 - Python 3.13 for the backend and Whisper
 - FFmpeg and ffprobe available on `PATH`
-- Ollama with the `llama3.2` model for AI-assisted segment selection (optional)
+- Ollama with the `llama3.2` model for generating topic-slide titles; it is optional when topic slides are disabled
 
 ## Clone
 
@@ -40,13 +40,13 @@ Keep this terminal open. The first start may download the Whisper model. CPU sys
 $env:KLEVER_WHISPER_MODEL = "base"
 ```
 
-For Ollama-assisted segment selection, install and start Ollama, then download the model:
+To generate topic slides or use Ollama-assisted segment selection, install and start Ollama, then download the model:
 
 ```powershell
 ollama pull llama3.2
 ```
 
-Ollama is optional. If it is unavailable, the backend keeps the recognized speech segments by default.
+Ollama is required when topic slides are enabled so each slide can show a concise title for its transcript section. If topic slides are disabled and Ollama is unavailable, the backend keeps the recognized speech segments by default.
 
 ## Set Up the Frontend
 

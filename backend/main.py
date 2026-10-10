@@ -30,12 +30,7 @@ except ImportError:
 app = FastAPI(title="Klever AI Video Editor")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-    ],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -424,10 +419,8 @@ def create_topic_slide(work_dir, topic_number, title):
     font_path = os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts", "arial.ttf")
     try:
         title_font = ImageFont.truetype(font_path, 54)
-        label_font = ImageFont.truetype(font_path, 24)
     except OSError:
         title_font = ImageFont.load_default()
-        label_font = ImageFont.load_default()
 
     title = title.encode("utf-8", "replace").decode("utf-8")[:120]
     words = title.split()
@@ -444,7 +437,6 @@ def create_topic_slide(work_dir, topic_number, title):
         lines.append(line)
 
     draw.rectangle((0, 0, 18, 720), fill=(236, 91, 76))
-    draw.text((76, 88), f"TOPIC {topic_number:02d}", fill=(137, 218, 212), font=label_font)
     draw.multiline_text(
         (76, 210),
         "\n".join(lines[:3]) or f"Section {topic_number}",
@@ -456,6 +448,66 @@ def create_topic_slide(work_dir, topic_number, title):
     slide_path = os.path.join(work_dir, f"topic_{topic_number}.png")
     image.save(slide_path)
     return slide_path
+
+
+def generate_topic_titles(topic_texts):
+    topic_sources = "\n\n".join(
+        f"TOPIC {topic_number} SOURCE:\n{text[:3000]}"
+        for topic_number, text in enumerate(topic_texts, start=1)
+    )
+    title_prompt = f"""
+Identify the main subject of each transcript section below. For each one, write a
+concise title of 2 to 6 words. Use a topic phrase, not a sentence or a quote from
+the transcript. Do not add explanations or any other text.
+
+Return exactly one title per line, in the same order as the sections. Each line
+must contain only the title, with no numbering or label.
+
+{topic_sources}
+"""
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "llama3.2", "prompt": title_prompt, "stream": False},
+            timeout=120,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not generate topic slide titles with Ollama: {exc}") from exc
+
+    try:
+        response_payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError("Ollama returned invalid data while generating topic slide titles.") from exc
+
+    if not isinstance(response_payload, dict) or not isinstance(response_payload.get("response"), str):
+        raise RuntimeError("Ollama did not return topic slide titles.")
+
+    titles = {}
+    response_lines = [
+        line.strip().strip("\"'").strip()
+        for line in response_payload["response"].splitlines()
+        if line.strip()
+    ]
+    for line in response_lines:
+        match = re.fullmatch(r"\s*(?:TOPIC\s+)?(\d+)\s*[:.)-]\s*(.+?)\s*", line, re.I)
+        if match:
+            topic_number = int(match.group(1))
+            title = match.group(2).strip().strip("\"'").strip()
+            if title and len(title.split()) <= 8:
+                titles[topic_number] = title
+
+    expected_topics = set(range(1, len(topic_texts) + 1))
+    if not titles and len(response_lines) == len(topic_texts):
+        titles = {
+            topic_number: title
+            for topic_number, title in enumerate(response_lines, start=1)
+            if title and len(title.split()) <= 8
+        }
+    if set(titles) != expected_topics:
+        raise RuntimeError("Ollama returned incomplete or invalid topic slide titles.")
+
+    return [titles[topic_number] for topic_number in sorted(expected_topics)]
 
 
 def process_video_job(job_id, prompt, remove_silence, insert_slides, slide_duration):
@@ -533,11 +585,22 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
         topic_stride = max(1, math.ceil(len(keep_segments) / 3))
         slide_indices = set(range(0, len(keep_segments), topic_stride)) if insert_slides else set()
         render_groups, preserved_gap_indices = group_kept_segments(keep_segments, slide_indices)
+        topic_texts = [
+            " ".join(segment["text"].strip() for segment in keep_segments[index:index + topic_stride])
+            for index in sorted(slide_indices)
+        ]
+        if topic_texts:
+            update_job(job_id, progress=37, step_message="Generating concise topic slide titles...")
+            topic_titles = generate_topic_titles(topic_texts)
+        else:
+            topic_titles = []
+
         topics = []
         slide_paths = {}
-        for topic_number, segment_index in enumerate(sorted(slide_indices), start=1):
-            title = " ".join(keep_segments[segment_index]["text"].split())
-            title = title[:117].rsplit(" ", 1)[0] + "..." if len(title) > 120 else title
+        for topic_number, (segment_index, title) in enumerate(
+            zip(sorted(slide_indices), topic_titles),
+            start=1,
+        ):
             slide_path = create_topic_slide(work_dir, topic_number, title or f"Section {topic_number}")
             slide_paths[segment_index] = slide_path
             topics.append({
@@ -755,4 +818,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
-
