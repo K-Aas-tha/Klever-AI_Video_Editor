@@ -310,7 +310,7 @@ async def edit_video(file: UploadFile = File(...)):
             "-c:a",
             "aac",
             "-preset",
-            "veryfast",
+            "ultrafast",
             clip_path,
         ]
         subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -347,7 +347,7 @@ async def edit_video(file: UploadFile = File(...)):
         "-c:a",
         "aac",
         "-preset",
-        "veryfast",
+        "ultrafast",
         edited_video,
     ]
     subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -367,7 +367,7 @@ async def edit_video(file: UploadFile = File(...)):
         "-c:a",
         "aac",
         "-preset",
-        "veryfast",
+        "ultrafast",
         final_video,
     ]
     subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -532,7 +532,7 @@ def process_video_job(job_id, prompt, remove_silence, insert_slides, slide_durat
         decisions = ["KEEP"] * len(segments)
 
         if remove_silence:
-            batch_size = 8
+            batch_size = 32
             for batch_start in range(0, len(segments), batch_size):
                 batch = segments[batch_start:batch_start + batch_size]
                 segment_text = "\n".join(
@@ -556,7 +556,12 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
                 try:
                     response = requests.post(
                         "http://localhost:11434/api/generate",
-                        json={"model": "llama3.2", "prompt": decision_prompt, "stream": False},
+                        json={
+                            "model": "llama3.2",
+                            "prompt": decision_prompt,
+                            "stream": False,
+                            "options": {"num_predict": batch_size * 8},
+                        },
                         timeout=120,
                     )
                     response.raise_for_status()
@@ -626,7 +631,7 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
                     "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
                     "-t", str(slide_duration),
                     "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p",
-                    "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-ar", "44100", "-ac", "2",
                     "-shortest", slide_video,
                 ])
                 clip_paths.append(slide_video)
@@ -644,7 +649,7 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
                 "-map", "0:v:0",
                 "-map", "0:a:0" if source_has_audio else "1:a:0",
                 "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p",
-                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+                "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-ar", "44100", "-ac", "2",
                 "-avoid_negative_ts", "make_zero", clip_path,
             ])
             run_media_command(command)
@@ -681,7 +686,7 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
             run_media_command([
                 "ffmpeg", "-y", "-i", joined_video,
                 "-vf", f"subtitles='{subtitle_filter_path}'",
-                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", edited_video,
+                "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", edited_video,
             ])
         except RuntimeError as exc:
             print(f"Subtitle burn-in skipped: {exc}")
