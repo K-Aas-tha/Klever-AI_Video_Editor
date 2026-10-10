@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Clapperboard, Download, Film, FolderOpen, Heart, Link2, LoaderCircle, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Sparkles, Upload, WandSparkles, X, Play, Image as ImageIcon, Scissors, Sliders } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Download, Film, FolderOpen, Heart, Link2, LoaderCircle, MoreHorizontal, MoonStar, Plus, Search, Sparkles, SunMedium, Upload, WandSparkles, X, Play, Image as ImageIcon, Scissors, Sliders, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Brand } from './brand';
 import podcast from '@/assets/podcast.jpg';
@@ -49,14 +49,25 @@ const demoProjects: Project[] = [
 ];
 
 const navItems = [
-  { id: 'studio', label: 'Create clips', icon: WandSparkles },
-  { id: 'projects', label: 'My projects', icon: FolderOpen }
+  { id: 'studio', label: 'Create from lecture', icon: WandSparkles },
+  { id: 'projects', label: 'My lectures', icon: FolderOpen }
 ] as const;
+
+const progressStepLabels: Record<string, string> = {
+  'Initializing video processing...': 'Preparing your lecture...',
+  'Transcribing audio with Whisper...': 'Analyzing audio...',
+  'Selecting useful transcript segments...': 'Removing silences and finding key moments...',
+  'Generating concise topic slide titles...': 'Preparing focused clip titles...',
+  'Rendering video segments...': 'Building your clips...',
+  'Joining clips and topic slides...': 'Finalizing your clips...',
+  'Video processing complete.': 'Done! Your lecture clips are ready.'
+};
 
 export function VideoWorkspace() {
   const [view, setView] = useState<View>('studio');
   const [projects, setProjects] = useState<Project[]>(demoProjects);
-  const [filter, setFilter] = useState('All projects');
+  const [isDarkTheme, setIsDarkTheme] = useState(true);
+  const [filter, setFilter] = useState('All lectures');
   const [search, setSearch] = useState('');
   const [url, setUrl] = useState('');
   const [notice, setNotice] = useState('');
@@ -78,7 +89,6 @@ export function VideoWorkspace() {
   const [stepMessage, setStepMessage] = useState('');
   const [editorNotice, setEditorNotice] = useState('');
   const [workspaceName, setWorkspaceName] = useState('My workspace');
-  const [name, setName] = useState('Alex Morgan');
   const [saved, setSaved] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -90,6 +100,12 @@ export function VideoWorkspace() {
     objects.current.forEach(value => URL.revokeObjectURL(value));
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dark', isDarkTheme);
+    root.style.colorScheme = isDarkTheme ? 'dark' : 'light';
+  }, [isDarkTheme]);
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
@@ -140,7 +156,7 @@ export function VideoWorkspace() {
       source,
       fileName: file.name,
       rawFile: file,
-      category: 'Uploaded video',
+      category: 'Uploaded lecture',
       duration: 'New',
       clips: 0,
       date: 'Just now',
@@ -248,7 +264,8 @@ export function VideoWorkspace() {
 
         const data = await res.json();
         const p = data.progress || 0;
-        const msg = data.step_message || "Processing...";
+        const rawMessage = data.step_message || "Processing...";
+        const msg = progressStepLabels[rawMessage] || rawMessage;
 
         setProgress(p);
         setStepMessage(msg);
@@ -278,7 +295,7 @@ export function VideoWorkspace() {
                 topics: formattedTopics,
                 summary: result.summary,
                 progress: 100,
-                stepMessage: 'AI Video Editing Completed!'
+                stepMessage: 'Done! Your lecture clips are ready.'
               };
             }
             return project;
@@ -293,7 +310,7 @@ export function VideoWorkspace() {
             topics: formattedTopics,
             summary: result.summary,
             progress: 100,
-            stepMessage: 'AI Video Editing Completed!'
+            stepMessage: 'Done! Your lecture clips are ready.'
           } : null);
 
           setEditorNotice('AI Video Editing Complete! Preview your video with topic slides below.');
@@ -313,10 +330,10 @@ export function VideoWorkspace() {
     const interval = setInterval(() => {
       p += 20;
       setProgress(p);
-      if (p === 30) setStepMessage("Transcribing audio with OpenAI Whisper...");
-      if (p === 50) setStepMessage("Detecting shot boundaries with PySceneDetect...");
-      if (p === 70) setStepMessage("Generating topic slides...");
-      if (p === 90) setStepMessage("Stitching video with MoviePy & FFmpeg...");
+      if (p === 30) setStepMessage("Analyzing audio...");
+      if (p === 50) setStepMessage(removeSilence ? "Removing silences and finding key moments..." : "Finding key moments...");
+      if (p === 70) setStepMessage("Building your clips...");
+      if (p === 90) setStepMessage("Finalizing your clips...");
 
       if (p >= 100) {
         clearInterval(interval);
@@ -324,6 +341,7 @@ export function VideoWorkspace() {
         setProjects(current => current.map(project => 
           project.id === active?.id ? { ...project, clips: 3, status: 'Ready' } : project
         ));
+        setStepMessage('Done! Your lecture clips are ready.');
         setEditorNotice('AI edits simulated. Start backend server at port 8000 for full video render.');
       }
     }, 800);
@@ -405,32 +423,54 @@ export function VideoWorkspace() {
     ) : (
       <div className="empty-state">
         <FolderOpen className="mx-auto mb-3" />
-        <p>No projects found.</p>
-        <Button variant="link" onClick={startProject}>Create your first project</Button>
+        <p>No lectures yet. Upload your first one to get started.</p>
+        <Button variant="link" onClick={startProject}>Upload your first lecture</Button>
       </div>
     );
   }
 
   return (
     <div className="app-shell">
+      <div className="theme-toggle-panel">
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={() => setIsDarkTheme(current => !current)}
+          aria-label={isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {isDarkTheme ? <SunMedium size={14} /> : <MoonStar size={14} />}
+          <span>{isDarkTheme ? 'Dark' : 'Light'}</span>
+        </button>
+      </div>
+
       <aside className="sidebar">
         <Brand />
-        <Button variant="outline" className="workspace-select" onClick={() => setView('settings')}>
-          <span className="flex items-center gap-2"><span className="workspace-avatar">M</span>{workspaceName}</span>
+        <Button
+          variant="outline"
+          className="workspace-select"
+          onClick={() => setView('settings')}
+          title={workspaceName}
+        >
+          <span className="workspace-select-name"><span className="workspace-avatar">M</span><span>{workspaceName}</span></span>
           <ChevronDown size={13} />
         </Button>
+
         <div className="nav-label">WORKSPACE</div>
-        <nav>
+        <nav className="sidebar-nav" aria-label="Workspace">
           {navItems.map(item => (
-            <Button key={item.id} variant="ghost" className={`nav-button ${view === item.id ? 'active' : ''}`} onClick={() => setView(item.id)}>
-              <item.icon size={17} />{item.label}
+            <Button
+              key={item.id}
+              variant="ghost"
+              className={`nav-button ${view === item.id ? 'active' : ''}`}
+              aria-current={view === item.id ? 'page' : undefined}
+              onClick={() => setView(item.id)}
+            >
+              <item.icon size={17} />
+              {item.label}
               {item.id === 'projects' && <span className="nav-count">{projects.length}</span>}
             </Button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <Button variant="ghost" className="nav-button" onClick={() => setView('settings')}><Settings2 />Settings</Button>
-        </div>
       </aside>
 
       <div className="main-shell">
@@ -439,12 +479,12 @@ export function VideoWorkspace() {
           <div className="breadcrumb">
             <span>Workspace</span>
             <ChevronRight size={12} />
-            <strong>{view === 'studio' ? 'Create clips' : view === 'projects' ? 'My projects' : 'Settings'}</strong>
+            <strong>{view === 'studio' ? 'Create from lecture' : 'My lectures'}</strong>
           </div>
           <div className="top-actions">
             <label className="search-field">
               <Search size={15} />
-              <input placeholder="Search your projects…" value={search} onChange={e => setSearch(e.target.value)} />
+              <input placeholder="Search your lectures…" value={search} onChange={e => setSearch(e.target.value)} />
             </label>
           </div>
         </header>
@@ -453,21 +493,27 @@ export function VideoWorkspace() {
           {view === 'studio' ? (
             <>
               <div className="welcome-row">
-                <div><h1>Cut the length, keep the impact!</h1><p>Automatic AI Video Editing Studio.</p></div>
-                <Button className="new-project" onClick={startProject}><Plus size={15} />New project</Button>
+                <div>
+                  <h1>Cut the length. Keep the impact.</h1>
+                  <p>Upload a full-length lecture recording. Klever removes silences and dead air, finds the key moments, and gives you clean, ready-to-share clips.</p>
+                </div>
               </div>
 
               <section className="creator-banner">
                 <div className="banner-copy">
-                  <h2>Long videos.<br /><span>AI Edited Magic.</span></h2>
-                  <p>Automatic silence removal and shot detection.</p>
+                  <h2>Raw lectures.<br /><span>Polished clips.</span></h2>
+                  <p>Automatic silence removal and key-moment detection, so students watch the lesson, not the pauses.</p>
+                  <div className="hero-stats" aria-label="Editing benefits">
+                    <span><Scissors size={13} /><span><strong>Silence removed</strong><small>Pauses and dead air cut automatically</small></span></span>
+                    <span><Film size={13} /><span><strong>Smart clipping</strong><small>Focused clips by key moment and topic</small></span></span>
+                    <span><Zap size={13} /><span><strong>Ready in minutes</strong><small>Upload once, download the result</small></span></span>
+                  </div>
                 </div>
               </section>
 
               <section ref={uploadRef}>
                 <div className="section-heading">
-                  <div><h2>Create your next AI video</h2><p>Upload a raw video file to process.</p></div>
-                  <span className="date-chip"><ShieldCheck size={13} />FastAPI Engine</span>
+                  <div><h2>Upload your raw lecture</h2><p>Add a full recording and we’ll turn it into a polished, clipped video.</p></div>
                 </div>
 
                 <div className="upload-panel">
@@ -478,17 +524,55 @@ export function VideoWorkspace() {
                     onDrop={e => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files[0]); }}
                   >
                     <div className="upload-icon"><Upload size={21} /></div>
-                    <h3>Drag & drop your video here</h3>
+                    <h3>Drag & drop your lecture video here</h3>
                     <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Plus size={13} />Choose a video</Button>
                   </div>
                 </div>
                 {notice && <p role="status" className="notice">{notice}</p>}
+              </section>
+
+              <section className="how-it-works" aria-labelledby="how-it-works-title">
+                <div className="content-section-heading">
+                  <h2 id="how-it-works-title">How it works</h2>
+                  <p>From full lecture to focused clips in three simple steps.</p>
+                </div>
+                <div className="steps-grid">
+                  <article className="step-card">
+                    <span className="step-number">01</span>
+                    <h3>Upload your raw lecture.</h3>
+                    <p>Drop in a recording straight from class or Zoom.</p>
+                  </article>
+                  <article className="step-card">
+                    <span className="step-number">02</span>
+                    <h3>AI cleans and clips it.</h3>
+                    <p>Silences are trimmed and key moments grouped into focused clips.</p>
+                  </article>
+                  <article className="step-card">
+                    <span className="step-number">03</span>
+                    <h3>Review and download.</h3>
+                    <p>Preview your clips, then export the finished video.</p>
+                  </article>
+                </div>
+              </section>
+
+              <section className="audience-section" aria-labelledby="audience-title">
+                <div className="content-section-heading">
+                  <h2 id="audience-title">Made for people who teach and learn</h2>
+                </div>
+                <div className="audience-grid">
+                  <article><h3>Teachers</h3><p>Publish tighter lessons without editing software.</p></article>
+                  <article><h3>Students</h3><p>Turn long recorded classes into quick revision clips.</p></article>
+                  <article><h3>Creators and coaches</h3><p>Repurpose long sessions into short, shareable pieces.</p></article>
+                </div>
               </section>
             </>
           ) : (
             projectCards(filtered)
           )}
         </main>
+        <footer className="workspace-footer">
+          <span>Klever 2026</span>
+        </footer>
       </div>
 
       <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
