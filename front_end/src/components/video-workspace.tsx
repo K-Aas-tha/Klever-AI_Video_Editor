@@ -69,7 +69,7 @@ export function VideoWorkspace() {
   
   // Editor Form States
   const [title, setTitle] = useState('');
-  const [prompt, setPrompt] = useState('Cut silent pauses and generate topic slides before explanations.');
+  const [prompt, setPrompt] = useState('Create a concise edit. Keep key insights and necessary context; remove pauses, filler, repetition, redundant examples, greetings, and tangents.');
   const [removeSilence, setRemoveSilence] = useState(true);
   const [insertSlides, setInsertSlides] = useState(true);
   const [slideDuration, setSlideDuration] = useState(3.5);

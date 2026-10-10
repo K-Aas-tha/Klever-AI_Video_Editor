@@ -33,6 +33,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:8080",
         "http://127.0.0.1:8080",
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
     ],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,6 +55,14 @@ if whisper_model is not None:
     print("whisper model is loaded")
 else:
     print("Warning: whisper model is unavailable. Install whisper to enable transcription.")
+
+whisper_transcribe_options = {"fp16": device == "cuda", "verbose": False}
+if device == "cpu":
+    whisper_transcribe_options.update(
+        temperature=0.0,
+        condition_on_previous_text=False,
+        beam_size=1,
+    )
 
 
 def format_subtitle(seconds):
@@ -186,7 +196,7 @@ async def edit_video(file: UploadFile = File(...)):
     print("\nTranscribing video...")
     if whisper_model is None:
         return {"error": "Whisper is not installed or available. Install the required dependencies first."}
-    result = whisper_model.transcribe(input_video, fp16=device == "cuda", verbose=False)
+    result = whisper_model.transcribe(input_video, **whisper_transcribe_options)
     segments = result.get("segments", [])
     print(f"Found {len(segments)} transcript segments")
 
@@ -207,25 +217,18 @@ async def edit_video(file: UploadFile = File(...)):
             segment_text += f"SEGMENT {global_index}: {segment['text'].strip()} "
 
         prompt = f"""
-        You are an AI video editor.
+        You are editing a spoken video for a concise, coherent cut.
+        Remove greetings, filler, false starts, repeated points, redundant examples,
+        long pauses, meta-commentary, tangents, and setup that adds no information.
+        Keep unique facts, key explanations, necessary steps, and context required
+        to understand them. Prefer REMOVE for low-value or repetitive segments;
+        keep a segment only when removing it would lose an important idea or make
+        the remaining explanation confusing.
 
-        Remove segments where the speaker is:
-        - silent
-        - saying nothing meaningful
-        - hesitating
-        - using filler words
-        - repeating something already said
-        - making unnecessary pauses or conversational remarks
-
-        KEEP segments that contain useful information,
-        important explanations, facts, or key ideas.
-
-        When unsure, KEEP the segment.
-
-        Return ONLY:
-
-        SEGMENT 1: KEEP
-        SEGMENT 2: REMOVE
+        Return exactly one line for every input segment, using only this format:
+        SEGMENT N: KEEP
+        SEGMENT N: REMOVE
+        Do not add explanations, headings, or other text.
 
         {segment_text}
         """
@@ -468,7 +471,7 @@ def process_video_job(job_id, prompt, remove_silence, insert_slides, slide_durat
             )
 
         update_job(job_id, progress=5, step_message="Transcribing audio with Whisper...")
-        transcript = whisper_model.transcribe(input_video, fp16=device == "cuda", verbose=False)
+        transcript = whisper_model.transcribe(input_video, **whisper_transcribe_options)
         segments = transcript.get("segments", [])
         if not segments:
             raise RuntimeError("Whisper did not find any speech segments in this video.")
@@ -485,10 +488,16 @@ def process_video_job(job_id, prompt, remove_silence, insert_slides, slide_durat
                     for local_index, segment in enumerate(batch)
                 )
                 decision_prompt = f"""
-You are an AI video editor. Apply these editing instructions when deciding which
-transcript segments contain useful content: {prompt or 'Remove silent pauses and filler.'}
-Return only lines in the form SEGMENT N: KEEP or SEGMENT N: REMOVE.
-When uncertain, KEEP the segment.
+You are editing a spoken video into a concise, coherent cut. Remove greetings,
+filler, false starts, repeated points, redundant examples, long pauses,
+meta-commentary, tangents, and setup that adds no information. Keep unique facts,
+key explanations, necessary steps, and context required to understand them.
+Prefer REMOVE for low-value or repetitive segments; keep a segment only when
+removing it would lose an important idea or make the remaining explanation confusing.
+Apply the user's additional editing instructions: {prompt or 'Make the edit concise while preserving key information.'}
+
+Return exactly one line for every input segment, using only SEGMENT N: KEEP or
+SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
 
 {segment_text}
 """
