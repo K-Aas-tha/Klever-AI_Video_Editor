@@ -8,3 +8,4 @@ pillow
 openai-whisper
 numpy
 pydantic
+requests

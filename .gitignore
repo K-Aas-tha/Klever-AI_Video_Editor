@@ -21,6 +21,7 @@ front_end/.output/
 front_end/.vinxi/
 front_end/.nitro/
 front_end/.wrangler/
+front_end/.vercel/
 front_end/*.local
 
 # Generated video-processing jobs

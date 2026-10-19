@@ -1,4 +1,5 @@
-﻿import os
+import json
+import os
 import math
 import re
 import uuid
@@ -28,14 +29,21 @@ except ImportError:
     whisper = None
 
 app = FastAPI(title="Klever AI Video Editor")
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("KLEVER_ALLOWED_ORIGINS", "*").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-JOBS_DIR = os.path.join(os.path.dirname(__file__), "jobs")
+JOBS_DIR = os.getenv("KLEVER_JOBS_DIR", os.path.join(os.path.dirname(__file__), "jobs"))
+OLLAMA_URL = os.getenv("KLEVER_OLLAMA_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL = os.getenv("KLEVER_OLLAMA_MODEL", "llama3.2")
 job_states: dict[str, dict[str, Any]] = {}
 
 if torch is not None:
@@ -231,9 +239,9 @@ async def edit_video(file: UploadFile = File(...)):
         ai_res = ""
         try:
             response = requests.post(
-                "http://localhost:11434/api/generate",
+                f"{OLLAMA_URL}/api/generate",
                 json={
-                    "model": "llama3.2",
+                    "model": OLLAMA_MODEL,
                     "prompt": prompt,
                     "stream": False,
                 },
@@ -394,23 +402,58 @@ def run_media_command(command):
         raise RuntimeError(error or f"{command[0]} exited with code {result.returncode}.")
 
 
-def has_audio_stream(video_path):
-    if shutil.which("ffprobe") is None:
+def inspect_video(video_path):
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
         raise RuntimeError("ffprobe is required but was not found on PATH.")
 
     result = subprocess.run(
         [
-            "ffprobe",
+            ffprobe,
             "-v", "error",
-            "-select_streams", "a:0",
-            "-show_entries", "stream=index",
-            "-of", "csv=p=0",
+            "-show_entries", "format=duration:stream=codec_type,duration",
+            "-of", "json",
             video_path,
         ],
         capture_output=True,
         text=True,
     )
-    return result.returncode == 0 and bool(result.stdout.strip())
+    if result.returncode:
+        error = result.stderr.strip()[-1000:]
+        raise ValueError(error or "FFmpeg could not read this video file.")
+
+    try:
+        metadata = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("FFmpeg returned invalid video metadata.") from exc
+
+    streams = metadata.get("streams") or []
+    if not any(stream.get("codec_type") == "video" for stream in streams):
+        raise ValueError("The uploaded file does not contain a video stream.")
+
+    durations = []
+    format_duration = (metadata.get("format") or {}).get("duration")
+    if format_duration is not None:
+        durations.append(format_duration)
+    durations.extend(
+        stream["duration"]
+        for stream in streams
+        if stream.get("codec_type") == "video" and stream.get("duration") is not None
+    )
+    valid_durations = []
+    for value in durations:
+        try:
+            parsed_duration = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(parsed_duration) and parsed_duration > 0:
+            valid_durations.append(parsed_duration)
+    if not valid_durations:
+        raise ValueError("The video has an invalid duration.")
+    duration = max(valid_durations)
+
+    has_audio = any(stream.get("codec_type") == "audio" for stream in streams)
+    return duration, has_audio
 
 
 def create_topic_slide(work_dir, topic_number, title):
@@ -455,20 +498,28 @@ def generate_topic_titles(topic_texts):
         f"TOPIC {topic_number} SOURCE:\n{text[:3000]}"
         for topic_number, text in enumerate(topic_texts, start=1)
     )
+    expected_lines = "\n".join(
+        f"TOPIC {topic_number}: <2-6 word title>"
+        for topic_number in range(1, len(topic_texts) + 1)
+    )
     title_prompt = f"""
-Identify the main subject of each transcript section below. For each one, write a
-concise title of 2 to 6 words. Use a topic phrase, not a sentence or a quote from
-the transcript. Do not add explanations or any other text.
+Identify the main subject of each transcript section below. Write one concise
+title of 2 to 6 words per section. Do not quote the transcript or add explanations.
 
-Return exactly one title per line, in the same order as the sections. Each line
-must contain only the title, with no numbering or label.
+Return exactly {len(topic_texts)} lines in this format, without omitting a topic:
+{expected_lines}
 
 {topic_sources}
 """
     try:
         response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "llama3.2", "prompt": title_prompt, "stream": False},
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": title_prompt,
+                "stream": False,
+                "options": {"temperature": 0, "num_predict": max(64, 24 * len(topic_texts))},
+            },
             timeout=120,
         )
         response.raise_for_status()
@@ -516,22 +567,27 @@ def process_video_job(job_id, prompt, remove_silence, insert_slides, slide_durat
     input_video = state["input_video"]
 
     try:
-        if whisper_model is None:
+        video_duration, source_has_audio = inspect_video(input_video)
+        if source_has_audio and whisper_model is None:
             raise RuntimeError(
                 "Whisper is unavailable in this Python environment. Install backend requirements "
                 "using the project's Python 3.13 environment, then restart the backend."
             )
 
-        update_job(job_id, progress=5, step_message="Transcribing audio with Whisper...")
-        transcript = whisper_model.transcribe(input_video, **whisper_transcribe_options)
-        segments = transcript.get("segments", [])
-        if not segments:
-            raise RuntimeError("Whisper did not find any speech segments in this video.")
+        segments = []
+        if source_has_audio:
+            update_job(job_id, progress=5, step_message="Transcribing audio with Whisper...")
+            transcript = whisper_model.transcribe(input_video, **whisper_transcribe_options)
+            segments = transcript.get("segments", [])
+        has_speech = bool(segments)
+        if not has_speech:
+            segments = [{"start": 0.0, "end": video_duration, "text": ""}]
 
-        create_sub(segments, os.path.join(work_dir, "original_sub.srt"))
+        if has_speech:
+            create_sub(segments, os.path.join(work_dir, "original_sub.srt"))
         decisions = ["KEEP"] * len(segments)
 
-        if remove_silence:
+        if remove_silence and has_speech:
             batch_size = 32
             for batch_start in range(0, len(segments), batch_size):
                 batch = segments[batch_start:batch_start + batch_size]
@@ -555,9 +611,9 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
 """
                 try:
                     response = requests.post(
-                        "http://localhost:11434/api/generate",
+                        f"{OLLAMA_URL}/api/generate",
                         json={
-                            "model": "llama3.2",
+                            "model": OLLAMA_MODEL,
                             "prompt": decision_prompt,
                             "stream": False,
                             "options": {"num_predict": batch_size * 8},
@@ -588,7 +644,11 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
             raise RuntimeError("No transcript segments were selected for the edited video.")
 
         topic_stride = max(1, math.ceil(len(keep_segments) / 3))
-        slide_indices = set(range(0, len(keep_segments), topic_stride)) if insert_slides else set()
+        slide_indices = (
+            set(range(0, len(keep_segments), topic_stride))
+            if insert_slides and has_speech
+            else set()
+        )
         render_groups, preserved_gap_indices = group_kept_segments(keep_segments, slide_indices)
         topic_texts = [
             " ".join(segment["text"].strip() for segment in keep_segments[index:index + topic_stride])
@@ -618,7 +678,6 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
         update_job(job_id, progress=40, step_message="Rendering video segments...")
         temp_dir = os.path.join(work_dir, "temp_clips")
         os.makedirs(temp_dir, exist_ok=True)
-        source_has_audio = has_audio_stream(input_video)
         clip_paths = []
         slide_duration = min(max(float(slide_duration), 0.5), 15.0)
         for group_index, group in enumerate(render_groups):
@@ -672,24 +731,27 @@ SEGMENT N: REMOVE. Do not add explanations, headings, or other text.
             "-c", "copy", joined_video,
         ])
 
-        subtitle_path = os.path.join(work_dir, "subtitles.srt")
-        create_edit_sub(
-            keep_segments,
-            subtitle_path,
-            slide_indices,
-            slide_duration if insert_slides else 0.0,
-            preserved_gap_indices,
-        )
         edited_video = os.path.join(work_dir, "edited_video.mp4")
-        subtitle_filter_path = subtitle_path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
-        try:
-            run_media_command([
-                "ffmpeg", "-y", "-i", joined_video,
-                "-vf", f"subtitles='{subtitle_filter_path}'",
-                "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", edited_video,
-            ])
-        except RuntimeError as exc:
-            print(f"Subtitle burn-in skipped: {exc}")
+        if has_speech:
+            subtitle_path = os.path.join(work_dir, "subtitles.srt")
+            create_edit_sub(
+                keep_segments,
+                subtitle_path,
+                slide_indices,
+                slide_duration if insert_slides else 0.0,
+                preserved_gap_indices,
+            )
+            subtitle_filter_path = subtitle_path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+            try:
+                run_media_command([
+                    "ffmpeg", "-y", "-i", joined_video,
+                    "-vf", f"subtitles='{subtitle_filter_path}'",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", edited_video,
+                ])
+            except RuntimeError as exc:
+                print(f"Subtitle burn-in skipped: {exc}")
+                shutil.copy2(joined_video, edited_video)
+        else:
             shutil.copy2(joined_video, edited_video)
 
         thumbnail_path = os.path.join(work_dir, "thumbnail.jpg")
@@ -746,6 +808,18 @@ async def upload_video(file: UploadFile = File(...)):
         raise
     finally:
         await file.close()
+
+    try:
+        inspect_video(input_video)
+    except ValueError as exc:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported or invalid video file: {exc}",
+        ) from exc
+    except RuntimeError:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        raise
 
     job_states[job_id] = {
         "status": "uploaded",
@@ -806,10 +880,15 @@ async def video_job_media(job_id: str, filename: str):
         r"topic_\d+\.png", filename
     ):
         raise HTTPException(status_code=404, detail="Media file was not found.")
+
+    try:
+        job_directory = str(uuid.UUID(job_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Video job was not found.") from None
+
     state = job_states.get(job_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="Video job was not found.")
-    media_path = os.path.join(state["work_dir"], filename)
+    work_dir = state["work_dir"] if state else os.path.join(JOBS_DIR, job_directory)
+    media_path = os.path.join(work_dir, filename)
     if not os.path.isfile(media_path):
         raise HTTPException(status_code=404, detail="Media file was not found.")
 

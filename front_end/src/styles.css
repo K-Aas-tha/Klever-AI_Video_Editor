@@ -372,3 +372,82 @@ button,a,input,select { -webkit-tap-highlight-color: transparent; }
 .video-stage[data-format="1:1"] { aspect-ratio:1; align-self:center; }
 .video-stage[data-format="16:9"] { aspect-ratio:16/9; align-self:center; }
 .project-cover video { width:100%;height:100%;object-fit:cover; }
+
+.welcome-row h1 { font-size:clamp(2rem,2.7vw,2.5rem); }
+.welcome-row p { font-size:clamp(1rem,1.15vw,1.125rem); }
+.banner-copy h2 { font-size:clamp(2.25rem,3vw,2.75rem); }
+.banner-copy p { font-size:1rem; }
+.hero-stats>span { font-size:.875rem; }
+.hero-stats strong { font-size:.9rem; }
+.hero-stats small { font-size:.8rem; }
+.section-heading h2,.content-section-heading h2 { font-size:1.4rem; }
+.section-heading p,.content-section-heading p { font-size:1rem; }
+.drop-zone h3 { font-size:1.125rem; }
+.step-card h3,.audience-grid h3 { font-size:1rem; }
+.step-card p,.audience-grid p { font-size:.95rem; }
+.step-number { font-size:.75rem; }
+
+@media(max-width:800px) {
+  .welcome-row h1 { font-size:clamp(1.85rem,4vw,2.25rem); }
+  .banner-copy h2 { font-size:2.125rem; }
+}
+
+@media(max-width:560px) {
+  .welcome-row h1 { font-size:1.65rem; }
+  .welcome-row p { font-size:.95rem; }
+  .banner-copy h2 { font-size:2rem; }
+  .banner-copy p { font-size:.95rem; }
+  .section-heading h2,.content-section-heading h2 { font-size:1.2rem; }
+  .section-heading p,.content-section-heading p { font-size:.9rem; }
+  .drop-zone h3 { font-size:1rem; }
+  .step-card h3,.audience-grid h3 { font-size:1rem; }
+  .step-card p,.audience-grid p { font-size:.9rem; }
+}
+
+.workspace-select,.nav-button { font-size:1rem; }
+.nav-label { font-size:.8rem; }
+.nav-count,.workspace-avatar { font-size:.85rem; }
+.breadcrumb,.search-field input { font-size:.95rem; }
+.date-chip,.eyebrow { font-size:.85rem; }
+.timeline-heading { font-size:.75rem; }
+.timeline-track-label { font-size:.7rem; }
+.timeline-footer span { font-size:.7rem; }
+.section-heading h2,.content-section-heading h2 { font-size:1.5rem; }
+.section-heading p,.content-section-heading p { font-size:1.05rem; }
+.engine-ready { font-size:.85rem; }
+.drop-zone h3 { font-size:1.25rem; }
+.drop-zone p { font-size:1rem; }
+.drop-zone small { font-size:.85rem; }
+.step-number { font-size:.85rem; }
+.step-card h3,.audience-grid h3 { font-size:1.1rem; }
+.step-card p,.audience-grid p { font-size:1rem; }
+.link-import h3 { font-size:1.1rem; }
+.link-import p,.url-input input,.url-input .import-button { font-size:.95rem; }
+.import-footnote,.segmented .segment { font-size:.85rem; }
+.status-badge,.duration,.project-meta,.project-footer { font-size:.85rem; }
+.project-title-row h3 { font-size:1rem; }
+.inspiration-band h3 { font-size:1.1rem; }
+.inspiration-band p,.inspiration-band .learn-button { font-size:.95rem; }
+.workspace-footer,.view-subtitle { font-size:.95rem; }
+.modal-head h2 { font-size:1.25rem; }
+.editor-fields label,.settings-form label { font-size:.95rem; }
+.editor-fields input:not([type=range]),.editor-fields select,.settings-form input,.settings-form select { font-size:1rem; }
+.editor-note,.notice { font-size:.9rem; }
+
+@media(max-width:800px) {
+  .nav-button { font-size:.9rem; }
+  .section-heading h2,.content-section-heading h2 { font-size:1.35rem; }
+  .section-heading p,.content-section-heading p { font-size:1rem; }
+}
+
+@media(max-width:560px) {
+  .nav-button { font-size:.8rem; }
+  .workspace-footer { font-size:.85rem; }
+  .project-title-row h3 { font-size:.9rem; }
+  .project-meta,.project-footer { font-size:.8rem; }
+  .section-heading h2,.content-section-heading h2 { font-size:1.2rem; }
+  .section-heading p,.content-section-heading p { font-size:.95rem; }
+  .drop-zone h3 { font-size:1.1rem; }
+  .drop-zone p { font-size:.95rem; }
+  .drop-zone small { font-size:.8rem; }
+}

@@ -4,7 +4,30 @@ import { Button } from '@/components/ui/button';
 import { Brand } from './brand';
 import podcast from '@/assets/podcast.jpg';
 
-const API_BASE = "http://localhost:8000";
+const localBackendRequested =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("backend") === "local";
+const API_BASE = (
+  localBackendRequested
+    ? "http://localhost:8000"
+    : import.meta.env["VITE_API_BASE_URL"] ||
+      (typeof window === "undefined"
+        ? "http://localhost:8000"
+        : `${window.location.protocol}//${window.location.hostname}:8000`)
+).replace(/\/+$/, "");
+
+async function getUploadError(response: Response) {
+  const payload: unknown = await response.json();
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "detail" in payload &&
+    typeof payload.detail === "string"
+  ) {
+    return payload.detail;
+  }
+  return `Upload failed (${response.status} ${response.statusText}).`;
+}
 
 type View = 'studio' | 'projects' | 'settings';
 
@@ -134,10 +157,6 @@ export function VideoWorkspace() {
 
   async function upload(file?: File) {
     if (!file) return;
-    if (!file.type.startsWith('video/')) {
-      setNotice('Please choose a valid video file (MP4, MOV, WebM).');
-      return;
-    }
     if (file.size > 500 * 1024 * 1024) {
       setNotice('Please select a video smaller than 500 MB.');
       return;
@@ -147,10 +166,8 @@ export function VideoWorkspace() {
     objects.current.push(source);
     setNotice('Uploading video to Klever AI server...');
 
-    const tempJobId = `job_${Date.now()}`;
     const newProject: Project = {
       id: Date.now(),
-      jobId: tempJobId,
       title: file.name.replace(/\.[^.]+$/, ''),
       image: podcast,
       source,
@@ -177,18 +194,47 @@ export function VideoWorkspace() {
         body: formData
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const serverJobId = data.job_id;
-        
-        setProjects(current => current.map(p => p.id === newProject.id ? { ...p, jobId: serverJobId } : p));
-        setActive(prev => prev && prev.id === newProject.id ? { ...prev, jobId: serverJobId } : prev);
-        setEditorNotice("Video uploaded to backend. Ready for AI processing!");
+      if (!res.ok) {
+        throw new Error(await getUploadError(res));
       }
+
+      const data = await res.json();
+      const serverJobId = data.job_id;
+      setProjects(current => current.map(p => p.id === newProject.id ? { ...p, jobId: serverJobId } : p));
+      setActive(prev => prev && prev.id === newProject.id ? { ...prev, jobId: serverJobId } : prev);
+      setEditorNotice("Video uploaded to backend. Ready for AI processing!");
     } catch (err) {
-      console.warn("Backend upload note:", err);
-      setEditorNotice("Video ready locally. FastAPI server connectable at http://localhost:8000.");
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("Backend upload failed:", err);
+      setEditorNotice(`Could not upload to backend at ${API_BASE}. Check its URL, availability, and CORS settings. ${message}`);
     }
+  }
+
+  async function registerSourceVideo(project: Project) {
+    if (!project.rawFile) {
+      throw new Error('This video is no longer uploaded to the backend. Please upload the original video again.');
+    }
+
+    const formData = new FormData();
+    formData.append("file", project.rawFile);
+    const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+    if (!uploadRes.ok) {
+      throw new Error(await getUploadError(uploadRes));
+    }
+
+    const uploadData: { job_id?: unknown } = await uploadRes.json();
+    if (typeof uploadData.job_id !== "string" || !uploadData.job_id) {
+      throw new Error("The backend did not return a valid video job ID.");
+    }
+    const jobId = uploadData.job_id;
+
+    setProjects(current => current.map(item =>
+      item.id === project.id ? { ...item, jobId } : item
+    ));
+    setActive(current =>
+      current?.id === project.id ? { ...current, jobId } : current
+    );
+    return jobId;
   }
 
   async function triggerAIProcessing() {
@@ -202,21 +248,19 @@ export function VideoWorkspace() {
     // If job ID not yet registered on backend, upload first
     if (!currentJobId && active.rawFile) {
       try {
-        const formData = new FormData();
-        formData.append("file", active.rawFile);
-        const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
-        if (uploadRes.ok) {
-          const uData = await uploadRes.json();
-          currentJobId = uData.job_id;
-        }
-      } catch (e) {
-        console.error("Upload error before process:", e);
+        currentJobId = await registerSourceVideo(active);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("Upload error before process:", err);
+        setEditorNotice(`Could not connect to backend at ${API_BASE}. Check its URL and CORS settings. ${message}`);
+        setBusy(false);
+        return;
       }
     }
 
     if (!currentJobId) {
-      // Fallback mock simulation if offline
-      simulateLocalAIProcess();
+      setEditorNotice("Upload this video to the backend before starting AI processing.");
+      setBusy(false);
       return;
     }
 
@@ -228,15 +272,26 @@ export function VideoWorkspace() {
       processForm.append("insert_slides", String(insertSlides));
       processForm.append("slide_duration", String(slideDuration));
 
-      const processRes = await fetch(`${API_BASE}/api/process`, {
+      let processRes = await fetch(`${API_BASE}/api/process`, {
         method: "POST",
         body: processForm
       });
 
-      if (!processRes.ok) {
-        throw new Error("Could not start background processing pipeline.");
+      if (processRes.status === 404) {
+        currentJobId = await registerSourceVideo(active);
+        processForm.set("job_id", currentJobId);
+        processRes = await fetch(`${API_BASE}/api/process`, {
+          method: "POST",
+          body: processForm
+        });
       }
 
+      if (!processRes.ok) {
+        const detail = await processRes.json().catch(() => null);
+        throw new Error(detail?.detail || `Could not start processing (${processRes.status} ${processRes.statusText}).`);
+      }
+
+      setEditorNotice('');
       startStatusPolling(currentJobId);
 
     } catch (err) {
@@ -501,7 +556,7 @@ export function VideoWorkspace() {
 
               <section className="creator-banner">
                 <div className="banner-copy">
-                  <h2>Raw lectures.<br /><span>Polished clips.</span></h2>
+                  <h2>Raw lectures.<br /><span className="text-amber-300">Polished clips.</span></h2>
                   <p>Automatic silence removal and key-moment detection, so students watch the lesson, not the pauses.</p>
                   <div className="hero-stats" aria-label="Editing benefits">
                     <span><Scissors size={13} /><span><strong>Silence removed</strong><small>Pauses and dead air cut automatically</small></span></span>
@@ -526,6 +581,7 @@ export function VideoWorkspace() {
                     <div className="upload-icon"><Upload size={21} /></div>
                     <h3>Drag & drop your lecture video here</h3>
                     <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Plus size={13} />Choose a video</Button>
+                    <small>Upload a video up to 500 MB.</small>
                   </div>
                 </div>
                 {notice && <p role="status" className="notice">{notice}</p>}
@@ -575,7 +631,7 @@ export function VideoWorkspace() {
         </footer>
       </div>
 
-      <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
+      <input ref={fileRef} type="file" accept="video/*,.mkv,.avi,.wmv,.flv,.mpeg,.mpg,.m4v,.3gp,.ts,.mts,.m2ts,.vob,.ogv,.mxf,.asf" className="hidden" onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
 
       {/* Editor Modal */}
       {active && (
@@ -617,7 +673,7 @@ export function VideoWorkspace() {
                 {/* Topics Breakdown Gallery */}
                 {active.topics && active.topics.length > 0 && (
                   <div className="mt-2">
-                    <h4 className="text-xs font-bold uppercase text-slate-500 mb-2 flex items-center gap-1">
+                    <h4 className="text-xs font-bold uppercase text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-1">
                       <ImageIcon size={14} /> Generated Pillow FCC Topic Cards
                     </h4>
                     <div className="grid grid-cols-2 gap-2 max-h-[160px] overflow-y-auto">
@@ -627,8 +683,8 @@ export function VideoWorkspace() {
                             <img src={t.slide_image} alt={t.title} className="w-16 h-10 object-cover rounded border" />
                           )}
                           <div>
-                            <p className="text-xs font-bold line-clamp-1">Section {t.topic_number}: {t.title}</p>
-                            <span className="text-[10px] text-slate-500">{t.timestamp_sec}s</span>
+                            <p className="text-xs font-bold line-clamp-1 text-amber-800 dark:text-amber-200">Section {t.topic_number}: {t.title}</p>
+                            <span className="text-[10px] text-amber-700 dark:text-amber-300">{t.timestamp_sec}s</span>
                           </div>
                         </div>
                       ))}
@@ -649,18 +705,18 @@ export function VideoWorkspace() {
                 </label>
 
                 <div className="flex flex-col gap-2 border p-3 rounded bg-slate-50">
-                  <span className="text-xs font-bold flex items-center gap-1 text-slate-700">
-                    <Sliders size={14} /> AI Processing Modules
+                  <span className="text-xs font-bold flex items-center gap-1 text-amber-800 dark:text-amber-200">
+                    <Sliders size={14} className="text-amber-700 dark:text-amber-300" /> AI Processing Modules
                   </span>
 
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={removeSilence} onChange={e => setRemoveSilence(e.target.checked)} />
-                    <Scissors size={14} className="text-primary" /> Silence Removal (Whisper)
+                  <label className="flex items-center gap-2 text-xs cursor-pointer rounded px-2 py-1.5 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/50">
+                    <input type="checkbox" className="accent-amber-500" checked={removeSilence} onChange={e => setRemoveSilence(e.target.checked)} />
+                    <Scissors size={14} className="text-amber-700 dark:text-amber-300" /> Silence Removal (Whisper)
                   </label>
 
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={insertSlides} onChange={e => setInsertSlides(e.target.checked)} />
-                    <ImageIcon size={14} className="text-primary" /> FCC Pillow Topic Intro Slides
+                  <label className="flex items-center gap-2 text-xs cursor-pointer rounded px-2 py-1.5 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/50">
+                    <input type="checkbox" className="accent-amber-500" checked={insertSlides} onChange={e => setInsertSlides(e.target.checked)} />
+                    <ImageIcon size={14} className="text-amber-700 dark:text-amber-300" /> FCC Pillow Topic Intro Slides
                   </label>
                 </div>
 
