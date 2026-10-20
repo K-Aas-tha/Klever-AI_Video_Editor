@@ -114,6 +114,17 @@ $env:PATH = "C:\path\to\ffmpeg\bin;$env:PATH"
 
 Replace the Vercel origin and FFmpeg path with your own values. After the API responds at `http://localhost:8000/`, open the Vercel URL with `?backend=local` in the same browser on the same computer.
 
+## Deploy the Frontend to Vercel
+
+The frontend can be deployed to Vercel, but the video-processing API must run on a separate, publicly reachable backend host. The backend requires Whisper, FFmpeg/ffprobe, and (when topic slides are enabled) Ollama; it also stores uploaded videos and job state on its local disk and in process memory. Vercel's serverless functions are not a suitable host for that long-running processing pipeline.
+
+1. Import this repository into Vercel and set the project root directory to `front_end`. The Vite config selects Nitro's Vercel preset for production builds.
+2. Configure `VITE_API_BASE_URL` in the Vercel project's environment variables to the backend's public HTTPS origin, without a trailing slash (for example, `https://api.example.com`).
+3. Deploy or redeploy the frontend after setting the variable. Vite embeds `VITE_*` variables at build time.
+4. Keep the backend running on a host that provides the required Python packages and media tools. The backend currently allows cross-origin requests; if you later restrict CORS, allow the Vercel deployment's origin.
+
+For local development, omit `VITE_API_BASE_URL` to use `http://localhost:8000`. See [front_end/.env.example](./front_end/.env.example) for the variable name. Do not use `localhost` as the Vercel value: in a visitor's browser it refers to that visitor's own computer, not the backend server.
+
 ## Use the Editor
 
 1. Choose **Create clips**, then select a video or drag it into the upload area. Common formats such as MP4, MOV, MKV, AVI, WebM, WMV, and MPEG are accepted when the installed FFmpeg build can decode them. Videos must be no larger than 500 MB. The backend checks the actual video stream rather than trusting the filename or browser MIME type. Videos without speech are kept as a full-length clip; speech-based silence removal and topic slides require detectable speech.
