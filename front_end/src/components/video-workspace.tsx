@@ -4,7 +4,30 @@ import { Button } from '@/components/ui/button';
 import { Brand } from './brand';
 import podcast from '@/assets/podcast.jpg';
 
-const API_BASE = (import.meta.env["VITE_API_BASE_URL"] || "http://localhost:8000").replace(/\/+$/, "");
+const localBackendRequested =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("backend") === "local";
+const API_BASE = (
+  localBackendRequested
+    ? "http://localhost:8000"
+    : import.meta.env["VITE_API_BASE_URL"] ||
+      (typeof window === "undefined"
+        ? "http://localhost:8000"
+        : `${window.location.protocol}//${window.location.hostname}:8000`)
+).replace(/\/+$/, "");
+
+async function getUploadError(response: Response) {
+  const payload: unknown = await response.json();
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "detail" in payload &&
+    typeof payload.detail === "string"
+  ) {
+    return payload.detail;
+  }
+  return `Upload failed (${response.status} ${response.statusText}).`;
+}
 
 type View = 'studio' | 'projects' | 'settings';
 
@@ -172,7 +195,7 @@ export function VideoWorkspace() {
       });
 
       if (!res.ok) {
-        throw new Error(`Upload failed (${res.status} ${res.statusText}).`);
+        throw new Error(await getUploadError(res));
       }
 
       const data = await res.json();
@@ -187,6 +210,33 @@ export function VideoWorkspace() {
     }
   }
 
+  async function registerSourceVideo(project: Project) {
+    if (!project.rawFile) {
+      throw new Error('This video is no longer uploaded to the backend. Please upload the original video again.');
+    }
+
+    const formData = new FormData();
+    formData.append("file", project.rawFile);
+    const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+    if (!uploadRes.ok) {
+      throw new Error(await getUploadError(uploadRes));
+    }
+
+    const uploadData: { job_id?: unknown } = await uploadRes.json();
+    if (typeof uploadData.job_id !== "string" || !uploadData.job_id) {
+      throw new Error("The backend did not return a valid video job ID.");
+    }
+    const jobId = uploadData.job_id;
+
+    setProjects(current => current.map(item =>
+      item.id === project.id ? { ...item, jobId } : item
+    ));
+    setActive(current =>
+      current?.id === project.id ? { ...current, jobId } : current
+    );
+    return jobId;
+  }
+
   async function triggerAIProcessing() {
     if (!active) return;
     setBusy(true);
@@ -198,14 +248,7 @@ export function VideoWorkspace() {
     // If job ID not yet registered on backend, upload first
     if (!currentJobId && active.rawFile) {
       try {
-        const formData = new FormData();
-        formData.append("file", active.rawFile);
-        const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
-        if (!uploadRes.ok) {
-          throw new Error(`Upload failed (${uploadRes.status} ${uploadRes.statusText}).`);
-        }
-        const uData = await uploadRes.json();
-        currentJobId = uData.job_id;
+        currentJobId = await registerSourceVideo(active);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("Upload error before process:", err);
@@ -216,8 +259,6 @@ export function VideoWorkspace() {
     }
 
     if (!currentJobId) {
-      setEditorNotice("Upload this video to the backend before starting AI processing.");
-      setBusy(false);
       setEditorNotice("Upload this video to the backend before starting AI processing.");
       setBusy(false);
       return;
@@ -246,8 +287,6 @@ export function VideoWorkspace() {
       }
 
       if (!processRes.ok) {
-        const detail = await processRes.json().catch(() => null);
-        throw new Error(detail?.detail || `Could not start processing (${processRes.status} ${processRes.statusText}).`);
         const detail = await processRes.json().catch(() => null);
         throw new Error(detail?.detail || `Could not start processing (${processRes.status} ${processRes.statusText}).`);
       }
