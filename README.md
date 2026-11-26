@@ -122,7 +122,7 @@ The backend API and interactive documentation are available at [http://localhost
 
 ## Author
 
-### Aastha Nayak & Sandhya Tiwari
+### Aastha Nayak 
 
 **Machine Learning • Python • Natural Language Processing • FastAPI**
 
