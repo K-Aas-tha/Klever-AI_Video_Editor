@@ -2037,7 +2037,7 @@ select {
   position: fixed;
   top: 0;
   bottom: 0;
-  width: 226px;
+  width: 270px;
   background: var(--card);
   border-right: 1px solid var(--border);
   padding: 32px 19px 20px;
@@ -2076,6 +2076,7 @@ select {
 .workspace-select {
   width: 100%;
   justify-content: space-between;
+  gap: 8px;
   border-color: var(--border);
   height: 46px;
   background: var(--background);
@@ -2084,6 +2085,7 @@ select {
 .workspace-avatar {
   width: 27px;
   height: 27px;
+  flex-shrink: 0;
   display: grid;
   place-items: center;
   background: var(--lilac);
@@ -2108,6 +2110,7 @@ select {
   padding: 0 13px;
   font-size: 13px;
   gap: 12px;
+  overflow: hidden;
   color: var(--muted-foreground);
 }
 
@@ -3199,11 +3202,11 @@ select {
 
 @media(max-width:1100px) {
   .app-shell {
-    grid-template-columns: 195px minmax(0, 1fr);
+    grid-template-columns: 248px minmax(0, 1fr);
   }
 
   .sidebar {
-    width: 195px;
+    width: 248px;
     padding-left: 13px;
     padding-right: 13px;
   }
@@ -3257,11 +3260,11 @@ select {
 
 @media(max-width:800px) {
   .app-shell {
-    grid-template-columns: 165px minmax(0, 1fr);
+    grid-template-columns: 224px minmax(0, 1fr);
   }
 
   .sidebar {
-    width: 165px;
+    width: 224px;
     padding: 26px 10px 16px;
   }
 
