@@ -4,30 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Brand } from './brand';
 import podcast from '@/assets/podcast.jpg';
 
-const localBackendRequested =
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).get("backend") === "local";
-const API_BASE = (
-  localBackendRequested
-    ? "http://localhost:8000"
-    : import.meta.env["VITE_API_BASE_URL"] ||
-      (typeof window === "undefined"
-        ? "http://localhost:8000"
-        : `${window.location.protocol}//${window.location.hostname}:8000`)
-).replace(/\/+$/, "");
-
-async function getUploadError(response: Response) {
-  const payload: unknown = await response.json();
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    "detail" in payload &&
-    typeof payload.detail === "string"
-  ) {
-    return payload.detail;
-  }
-  return `Upload failed (${response.status} ${response.statusText}).`;
-}
+const API_BASE = (import.meta.env["VITE_API_BASE_URL"] || "http://localhost:8000").replace(/\/+$/, "");
 
 type View = 'studio' | 'projects' | 'settings';
 
@@ -195,7 +172,7 @@ export function VideoWorkspace() {
       });
 
       if (!res.ok) {
-        throw new Error(await getUploadError(res));
+        throw new Error(`Upload failed (${res.status} ${res.statusText}).`);
       }
 
       const data = await res.json();
@@ -210,7 +187,7 @@ export function VideoWorkspace() {
     }
   }
 
-  async function registerSourceVideo(project: Project) {
+  async function registerSourceVideo(project: Project): Promise<string> {
     if (!project.rawFile) {
       throw new Error('This video is no longer uploaded to the backend. Please upload the original video again.');
     }
@@ -219,7 +196,7 @@ export function VideoWorkspace() {
     formData.append("file", project.rawFile);
     const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
     if (!uploadRes.ok) {
-      throw new Error(await getUploadError(uploadRes));
+      throw new Error(`Upload failed (${uploadRes.status} ${uploadRes.statusText}).`);
     }
 
     const uploadData: { job_id?: unknown } = await uploadRes.json();
@@ -248,7 +225,14 @@ export function VideoWorkspace() {
     // If job ID not yet registered on backend, upload first
     if (!currentJobId && active.rawFile) {
       try {
-        currentJobId = await registerSourceVideo(active);
+        const formData = new FormData();
+        formData.append("file", active.rawFile);
+        const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+        if (!uploadRes.ok) {
+          throw new Error(`Upload failed (${uploadRes.status} ${uploadRes.statusText}).`);
+        }
+        const uData = await uploadRes.json();
+        currentJobId = uData.job_id;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("Upload error before process:", err);
@@ -289,7 +273,7 @@ export function VideoWorkspace() {
       if (!processRes.ok) {
         const detail = await processRes.json().catch(() => null);
         throw new Error(detail?.detail || `Could not start processing (${processRes.status} ${processRes.statusText}).`);
-      }
+       }
 
       setEditorNotice('');
       startStatusPolling(currentJobId);
